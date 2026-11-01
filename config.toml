@@ -1,0 +1,29 @@
+# Instellingen voor de vacature-scraper.
+# Pas hier aan, niet in de code.
+
+[algemeen]
+# Map waar de CSV's en de geschiedenis worden opgeslagen
+output_dir = "output"
+# Scheidingsteken van de CSV. ";" opent direct goed in Nederlandse Excel.
+csv_delimiter = ";"
+# Pauze (seconden) tussen het openen van twee vacaturepagina's, om de site niet te belasten
+delay_seconds = 1.5
+# Aantal pogingen per pagina bij een fout
+max_retries = 3
+# Browser zichtbaar maken (handig bij debuggen)
+headless = true
+# robots.txt van de site respecteren
+respect_robots_txt = true
+
+[sites.kpmg]
+naam = "KPMG Nederland"
+start_url = "https://www.werkenbijkpmg.nl/vacatures"
+# Regex waarmee links naar vacaturepagina's worden herkend.
+# Controleer dit na de eerste 'python -m scraper kpmg --debug' run.
+vacature_link_pattern = "/vacatures?/[^/?#]+[^/?#]*$"
+# Links die WEL op het patroon lijken maar geen vacature zijn
+uitsluit_pattern = "/vacatures?/?$|/vacatures?/(zoeken|search|filter|categorie|locatie)"
+# Knoppen voor 'meer laden' / volgende pagina (teksten, hoofdletterongevoelig)
+meer_laden_teksten = ["meer vacatures", "meer laden", "toon meer", "load more", "show more", "volgende", "next"]
+# Max aantal keer doorklikken/pagineren (veiligheidsgrens)
+max_paginas = 200
