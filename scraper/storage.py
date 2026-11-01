@@ -31,6 +31,7 @@ CORE_COLUMNS = [
     "salaris_eenheid",
     "salaris_valuta",
     "salaris_bron",
+    "salaris_type",
     "opleidingseisen",
     "ervaringseisen",
     "functiecategorie",

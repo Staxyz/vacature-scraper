@@ -194,11 +194,11 @@ def parse_job_posting(jp: dict) -> dict[str, str]:
 # ---------------------------------------------------------------- HTML-kenmerken
 
 
-_LABEL_VALUE = re.compile(r"^\s*([A-Za-zÀ-ÿ /&'-]{2,40})\s*:\s*(.{1,200})$")
-
-
 def extract_facts(soup: BeautifulSoup) -> dict[str, str]:
-    """Label/waarde-paren zoals 'Locatie: Amstelveen' of 'Uren: 32-40'."""
+    """Label/waarde-paren uit definitielijsten (dl) en tabellen met twee kolommen.
+
+    Opsommingen ('Leiderschap: ...') horen bij de tekst en staan al in de secties.
+    """
     facts: dict[str, str] = {}
 
     def add(label: str, value: str) -> None:
@@ -218,10 +218,6 @@ def extract_facts(soup: BeautifulSoup) -> dict[str, str]:
         cells = tr.find_all(["th", "td"])
         if len(cells) == 2:
             add(cells[0].get_text(" "), cells[1].get_text(" "))
-    for li in soup.find_all("li"):
-        m = _LABEL_VALUE.match(li.get_text(" ").strip())
-        if m:
-            add(m.group(1), m.group(2))
     return facts
 
 
@@ -289,17 +285,21 @@ def extract_sections(soup: BeautifulSoup, alias_map: dict[str, str] | None = Non
 
 # ---------------------------------------------------------------- Afgeleide velden
 
-_MONEY = r"€\s*(\d[\d.,]*\d|\d)(?:,-)?"
+_NUM = r"(\d{1,3}(?:[.,\s]\d{3})+|\d+(?:[.,]\d{1,2})?)"
+_MONEY = r"(?:€|EUR)\s*" + _NUM + r"(?:,-)?\s*(k\b)?"
 _SALARY_RANGE = re.compile(_MONEY + r"\s*(?:-|–|tot(?:\s+en\s+met)?|en|to|and)\s*" + _MONEY, re.IGNORECASE)
-_SALARY_SINGLE = re.compile(r"(?:salaris|salary)[^€\n]{0,60}" + _MONEY, re.IGNORECASE)
-_HOURS = re.compile(r"(\d{2})\s*(?:-|–|tot|to)\s*(\d{2})\s*(?:uur|hours|u\b)", re.IGNORECASE)
-_HOURS_SINGLE = re.compile(r"(\d{2})\s*(?:uur|hours)\s*(?:per|a|in de|p\.?)\s*(?:week|wk)", re.IGNORECASE)
+_SALARY_SINGLE = re.compile(r"(?:salaris|salary|vergoeding|allowance|compensation)[^€\n]{0,60}" + _MONEY, re.IGNORECASE)
+_HOURS = re.compile(r"(?<![:\d])(\d{2})\s*(?:-|–|tot|to|of|or)\s*(\d{2})\s*(?:uur|hours|u\b)", re.IGNORECASE)
+_HOURS_SINGLE = re.compile(r"(?<![:\d.])(\d{2})\s*(?:uur|hours)\b(?!\s*(?:op|at)\s)", re.IGNORECASE)
 
 
-def _money(s: str) -> str:
-    """'2.640' / '3,185' / '10.000' -> hele euro's; '12,50' / '12.50' -> decimaal."""
-    if re.fullmatch(r"\d{1,3}([.,]\d{3})+", s):
-        return re.sub(r"[.,]", "", s)
+def _money(s: str, k: str | None = None) -> str:
+    """'2.640' / '3,185' / '3 245' / '10.000' -> hele euro's; '12,50' -> decimaal; '100' + 'K' -> 100000."""
+    s = s.strip()
+    if k:
+        return str(int(float(s.replace(",", ".")) * 1000))
+    if re.fullmatch(r"\d{1,3}([.,\s]\d{3})+", s):
+        return re.sub(r"[.,\s]", "", s)
     if re.fullmatch(r"\d+[.,]\d{1,2}", s):
         return s.replace(",", ".")
     return re.sub(r"[.,]", "", s)
@@ -311,9 +311,9 @@ def derive_fields(rec: dict[str, str]) -> dict[str, str]:
     if not rec.get("salaris_min"):
         m = _SALARY_RANGE.search(text)
         if m:
-            rec["salaris_min"], rec["salaris_max"] = _money(m.group(1)), _money(m.group(2))
+            rec["salaris_min"], rec["salaris_max"] = _money(m.group(1), m.group(2)), _money(m.group(3), m.group(4))
         elif (m := _SALARY_SINGLE.search(text)):
-            rec["salaris_min"] = _money(m.group(1))
+            rec["salaris_min"] = _money(m.group(1), m.group(2))
         if m:
             ctx = text[max(0, m.start() - 80): m.end() + 40].lower()
             if "maand" in ctx or "month" in ctx:
@@ -324,6 +324,12 @@ def derive_fields(rec: dict[str, str]) -> dict[str, str]:
                 rec["salaris_eenheid"] = "HOUR"
             rec["salaris_valuta"] = "EUR"
             rec["salaris_bron"] = "tekst"
+            if re.search(r"vergoeding|allowance|stipend", ctx):
+                rec["salaris_type"] = "stagevergoeding"
+            elif "+" in text[m.end(): m.end() + 2]:
+                rec["salaris_type"] = "vanaf"
+            else:
+                rec["salaris_type"] = "salaris"
     elif not rec.get("salaris_bron"):
         rec["salaris_bron"] = "gestructureerd"
     m = _HOURS.search(text)

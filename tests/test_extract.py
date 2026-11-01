@@ -24,8 +24,7 @@ def test_jsonld_velden():
 
 def test_html_kenmerken_en_secties():
     r = parse()
-    assert r["kenmerk_ervaringsniveau"] == "Medior"
-    assert r["kenmerk_business_unit"] == "Audit"
+    assert "kenmerk_ervaringsniveau" not in r  # opsommingen zijn geen kenmerken
     assert r["kenmerk_uren"] == "32 - 40"
     assert "jaarrekeningen" in r["sectie_wat_ga_je_doen"]
     assert "• Klanten bezoeken" in r["sectie_wat_ga_je_doen"]
@@ -68,7 +67,17 @@ def test_bedragen():
         "Brutomaandsalaris tussen € 5.085,- en € 6.230,-": ("5085", "6230"),
         "between € 5.100 and € 6,250 per month": ("5100", "6250"),
         "between € 5.000 and € 10.000 per month": ("5000", "10000"),
+        "Salaris tussen EUR 3.965 en EUR 5.050": ("3965", "5050"),
+        "Brutomaandsalaris tussen €3 245 en €5 050 afhankelijk": ("3245", "5050"),
     }
     for tekst, verwacht in gevallen.items():
         r = derive_fields({"sectie_x": tekst})
         assert (r["salaris_min"], r["salaris_max"]) == verwacht, tekst
+
+    r = derive_fields({"sectie_x": "Bruto jaarsalaris van €100K+ afhankelijk van je werkervaring"})
+    assert (r["salaris_min"], r["salaris_eenheid"], r["salaris_type"]) == ("100000", "YEAR", "vanaf")
+    r = derive_fields({"sectie_x": "Een stagevergoeding van € 1.000,- per maand. Je bent 32 of 40 uur per week beschikbaar"})
+    assert (r["salaris_min"], r["salaris_type"]) == ("1000", "stagevergoeding")
+    assert (r["uren_min"], r["uren_max"]) == ("32", "40")
+    r = derive_fields({"sectie_x": "Op 7 december vanaf 12:00 uur. Beschikbaarheid minimaal 32 uur (4 dagen)."})
+    assert (r["uren_min"], r["uren_max"]) == ("32", "32")
