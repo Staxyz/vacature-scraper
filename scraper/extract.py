@@ -10,6 +10,7 @@ Alles is pure HTML -> dict, zonder netwerk, zodat het te testen is.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from typing import Any
@@ -20,8 +21,10 @@ from . import pii
 
 # Koppen in de pagina die nooit vacature-inhoud zijn
 _SKIP_HEADINGS = re.compile(
-    r"^(deel|share|cookie|vergelijkbare|gerelateerde|bekijk ook|andere vacatures|populaire|nieuwsbrief"
-    r"|volg ons|job alert|vacature ?alert|blijf op de hoogte|menu|zoeken)",
+    r"^(deel|share|cookie|vergelijkbare|gerelateerde|relevante vacatures|bekijk ook|andere vacatures"
+    r"|other vacancies|related|similar|populaire|nieuwsbrief|volg ons|follow us|job alert|vacature ?alert"
+    r"|blijf op de hoogte|menu|zoeken|search|ja,? ik wil solliciteren|yes,? i want to apply"
+    r"|deze .{0,20} gingen jou voor|these .{0,30} before you)",
     re.IGNORECASE,
 )
 _WS = re.compile(r"[ \t ]+")
@@ -31,6 +34,7 @@ _NL = re.compile(r"\n{3,}")
 def clean_text(text: str | None) -> str:
     if not text:
         return ""
+    text = html.unescape(str(text))
     text = _WS.sub(" ", text)
     text = "\n".join(line.strip() for line in text.splitlines())
     return _NL.sub("\n\n", text).strip()
@@ -232,8 +236,20 @@ def _main_container(soup: BeautifulSoup) -> Tag:
     return soup.body or soup
 
 
-def extract_sections(soup: BeautifulSoup) -> tuple[dict[str, str], list[str]]:
+def build_alias_map(aliases: dict[str, list[str]] | None) -> dict[str, str]:
+    """{'wat_ga_je_doen': ['What will you do?']} -> {'what_will_you_do': 'wat_ga_je_doen', ...}"""
+    out: dict[str, str] = {}
+    for canonical, variants in (aliases or {}).items():
+        c = slug(canonical)
+        out[c] = c
+        for v in variants:
+            out[slug(v)] = c
+    return out
+
+
+def extract_sections(soup: BeautifulSoup, alias_map: dict[str, str] | None = None) -> tuple[dict[str, str], list[str]]:
     """Geeft {sectie_<kop>: tekst} en de lijst met overgeslagen (contact)koppen."""
+    alias_map = alias_map or {}
     container = _main_container(soup)
     for junk in container.find_all(["script", "style", "noscript", "nav", "footer", "form", "svg", "iframe"]):
         junk.decompose()
@@ -242,11 +258,12 @@ def extract_sections(soup: BeautifulSoup) -> tuple[dict[str, str], list[str]]:
     skipped: list[str] = []
     headings = container.find_all(["h2", "h3"])
     for h in headings:
-        title = clean_text(h.get_text(" "))
+        title = re.sub(r"\s+", " ", clean_text(h.get_text(" "))).strip()
         if not title or _SKIP_HEADINGS.search(title):
             continue
         if pii.is_contact_heading(title):
-            skipped.append(title)
+            # Alleen het soort kop bewaren, nooit de kop zelf (kan een naam bevatten)
+            skipped.append("contact")
             continue
         # Verzamel alle elementen tot de volgende kop van gelijk of hoger niveau
         parts: list[str] = []
@@ -263,15 +280,64 @@ def extract_sections(soup: BeautifulSoup) -> tuple[dict[str, str], list[str]]:
                 parts.append(_element_text(BeautifulSoup(str(sib), "html.parser")))
         text = clean_text("\n".join(p for p in parts if p))
         if text:
-            key = "sectie_" + slug(title)
-            sections[key] = (sections.get(key, "") + "\n" + text).strip()
-    return sections, skipped
+            s = slug(title)
+            key = "sectie_" + alias_map.get(s, s)
+            if text not in sections.get(key, ""):
+                sections[key] = (sections.get(key, "") + "\n" + text).strip()
+    return sections, sorted(set(skipped))
+
+
+# ---------------------------------------------------------------- Afgeleide velden
+
+_MONEY = r"€\s*(\d[\d.,]*\d|\d)(?:,-)?"
+_SALARY_RANGE = re.compile(_MONEY + r"\s*(?:-|–|tot(?:\s+en\s+met)?|en|to|and)\s*" + _MONEY, re.IGNORECASE)
+_SALARY_SINGLE = re.compile(r"(?:salaris|salary)[^€\n]{0,60}" + _MONEY, re.IGNORECASE)
+_HOURS = re.compile(r"(\d{2})\s*(?:-|–|tot|to)\s*(\d{2})\s*(?:uur|hours|u\b)", re.IGNORECASE)
+_HOURS_SINGLE = re.compile(r"(\d{2})\s*(?:uur|hours)\s*(?:per|a|in de|p\.?)\s*(?:week|wk)", re.IGNORECASE)
+
+
+def _money(s: str) -> str:
+    """'2.640' / '3,185' / '10.000' -> hele euro's; '12,50' / '12.50' -> decimaal."""
+    if re.fullmatch(r"\d{1,3}([.,]\d{3})+", s):
+        return re.sub(r"[.,]", "", s)
+    if re.fullmatch(r"\d+[.,]\d{1,2}", s):
+        return s.replace(",", ".")
+    return re.sub(r"[.,]", "", s)
+
+
+def derive_fields(rec: dict[str, str]) -> dict[str, str]:
+    """Salaris en uren uit de vrije tekst halen als de gestructureerde data ze niet heeft."""
+    text = "\n".join(v for k, v in rec.items() if k.startswith(("sectie_", "arbeidsvoorwaarden", "omschrijving")))
+    if not rec.get("salaris_min"):
+        m = _SALARY_RANGE.search(text)
+        if m:
+            rec["salaris_min"], rec["salaris_max"] = _money(m.group(1)), _money(m.group(2))
+        elif (m := _SALARY_SINGLE.search(text)):
+            rec["salaris_min"] = _money(m.group(1))
+        if m:
+            ctx = text[max(0, m.start() - 80): m.end() + 40].lower()
+            if "maand" in ctx or "month" in ctx:
+                rec["salaris_eenheid"] = "MONTH"
+            elif "jaar" in ctx or "year" in ctx or "annual" in ctx:
+                rec["salaris_eenheid"] = "YEAR"
+            elif "uur" in ctx or "hour" in ctx:
+                rec["salaris_eenheid"] = "HOUR"
+            rec["salaris_valuta"] = "EUR"
+            rec["salaris_bron"] = "tekst"
+    elif not rec.get("salaris_bron"):
+        rec["salaris_bron"] = "gestructureerd"
+    m = _HOURS.search(text)
+    if m and 8 <= int(m.group(1)) <= int(m.group(2)) <= 48:
+        rec["uren_min"], rec["uren_max"] = m.group(1), m.group(2)
+    elif (m := _HOURS_SINGLE.search(text)) and 8 <= int(m.group(1)) <= 48:
+        rec["uren_min"] = rec["uren_max"] = m.group(1)
+    return rec
 
 
 # ---------------------------------------------------------------- Samengevoegd
 
 
-def parse_vacancy_page(html: str, url: str) -> dict[str, str]:
+def parse_vacancy_page(html: str, url: str, alias_map: dict[str, str] | None = None) -> dict[str, str]:
     soup = BeautifulSoup(html, "html.parser")
     rec: dict[str, str] = {"url": url}
 
@@ -301,14 +367,20 @@ def parse_vacancy_page(html: str, url: str) -> dict[str, str]:
     for k, v in extract_facts(soup).items():
         rec.setdefault(k, v)
 
-    sections, skipped = extract_sections(soup)
+    sections, skipped = extract_sections(soup, alias_map)
     rec.update(sections)
     if skipped:
         rec["verwijderde_contactsecties"] = " | ".join(skipped)
 
-    if not rec.get("omschrijving_volledig") and sections:
-        rec["omschrijving_volledig"] = "\n\n".join(sections.values())
+    # Volledige omschrijving = alle inhoudssecties met hun kop; de (vaak korte)
+    # JSON-LD-omschrijving blijft apart bewaard als 'intro'.
+    if sections:
+        if rec.get("omschrijving_volledig"):
+            rec["intro"] = rec.pop("omschrijving_volledig")
+        body = "\n\n".join(f"## {k.removeprefix('sectie_').replace('_', ' ').capitalize()}\n{v}"
+                           for k, v in sections.items())
+        rec["omschrijving_volledig"] = (rec.get("intro", "") + "\n\n" + body).strip()
 
-    rec = pii.scrub_record(rec)
+    rec = derive_fields(pii.scrub_record(rec))
     rec["aantal_woorden_omschrijving"] = str(len((rec.get("omschrijving_volledig") or "").split()))
     return rec

@@ -51,17 +51,26 @@ CSV's gebruiken `;` en UTF-8, zodat ze direct goed openen in Nederlandse Excel
 
 ### Kolommen
 
-**Vast:** `vacature_id`, `status` (eerste_run / nieuw / bestaand), `titel`, `organisatie`, `plaats`,
-`provincie_regio`, `land`, `dienstverband`, `werktijden`, `salaris_min/max/eenheid/valuta`,
-`opleidingseisen`, `ervaringseisen`, `functiecategorie`, `branche`, `publicatiedatum`, `geldig_tot`,
-`eerst_gezien`, `laatst_gezien`, `dagen_online`, `url`, `korte_omschrijving`, `omschrijving_volledig`.
+**Classificatie (uit de zoekfilters van KPMG):** `markt` (Advisory / Audit / Staff),
+`interessegebied`, `ervaringsniveau`, `opleidingsniveau`, `locaties` (alle vestigingen), `taal` (NL/EN).
 
-**Dynamisch:** alles wat de site extra toont, zoals:
-- `kenmerk_*`: label/waarde-paren van de pagina, bijvoorbeeld `kenmerk_ervaringsniveau` of `kenmerk_business_unit`
-- `sectie_*`: tekstblokken per kop, bijvoorbeeld `sectie_wat_ga_je_doen` of `sectie_wat_bieden_wij`
+**Basis:** `vacature_id`, `status` (eerste_run / nieuw / bestaand), `titel`, `organisatie`, `plaats`,
+`land`, `branche`, `url`.
 
-**Kwaliteit:** `aantal_woorden_omschrijving`, `bron_jsonld` (ja = gestructureerde data
-gevonden), `verwijderde_contactsecties`, `scrape_fout`, `gescraped_op`.
+**Voorwaarden:** `salaris_min`, `salaris_max`, `salaris_eenheid` (MONTH/YEAR), `salaris_valuta`,
+`salaris_bron` (tekst = uit de vacaturetekst gehaald), `uren_min`, `uren_max`.
+
+**Tijd:** `publicatiedatum` (laatst gepubliceerd volgens de site), `aangemaakt_op` (aangemaakt in het
+systeem van KPMG), `eerst_gezien`, `laatst_gezien`, `dagen_online`.
+
+**Tekst:** `korte_omschrijving`, `intro`, `omschrijving_volledig` (alle secties samen), en per sectie
+een eigen kolom: `sectie_jouw_uitdagingen`, `sectie_wat_ga_je_doen`, `sectie_dit_neem_jij_mee`,
+`sectie_dit_bieden_wij`, `sectie_sollicitatieprocedure`. Engelstalige vacatures komen in dezelfde
+kolommen (instelbaar via `sectie_aliassen` in `config.toml`). Overige label/waarde-paren
+komen in `kenmerk_*`-kolommen.
+
+**Kwaliteit:** `aantal_woorden_omschrijving`, `bron_jsonld`, `verwijderde_contactsecties`,
+`scrape_fout`, `gescraped_op`.
 
 `dagen_online` is gebaseerd op de publicatiedatum van de site. Ontbreekt die, dan
 wordt geteld vanaf de eerste run waarin de scraper de vacature zag.
@@ -73,15 +82,22 @@ wordt geteld vanaf de eerste run waarin de scraper de vacature zag.
 - In alle tekst worden e-mailadressen, telefoonnummers, LinkedIn-profielen en namen na
   zinnen als "neem contact op met …" of "… (Recruiter)" vervangen door `[verwijderd]`.
 
+- Koppen als "Interesse? Let's meet [naam]" (KPMG zet daar de recruiter in) worden volledig overgeslagen.
+
 Namen herkennen met regels is nooit 100% sluitend. Controleer de eerste output steekproefsgewijs.
 
 ## Hoe het werkt
 
-1. **Links verzamelen:** de overzichtspagina wordt geopend, de cookiebanner geaccepteerd en
-   'meer laden'/'volgende' doorgeklikt. Daarnaast wordt `sitemap.xml` gelezen als aanvulling.
+1. **Vacatures vinden:** werkenbijkpmg.nl laadt de vacaturelijst uit een zoekindex
+   (`/_lunr/vacancies`), met álle vacatures en hun filterwaarden. De scraper leest die index
+   (`scraper/sites/kpmg.py`). Werkt de index niet meer, dan valt hij automatisch terug op de
+   overzichtspagina ('meer laden' doorklikken) en `sitemap.xml`.
 2. **Vacatures uitlezen** (`scraper/extract.py`) in drie lagen:
    gestructureerde JSON-LD-data (schema.org JobPosting), label/waarde-paren en tekstsecties.
+   Salaris en uren worden uit de tekst gehaald als ze niet gestructureerd beschikbaar zijn.
 3. **Opslaan en vergelijken** (`scraper/storage.py`).
+
+Een volledige run (±185 vacatures) duurt ongeveer 10 minuten.
 
 Netjes scrapen: `robots.txt` wordt gerespecteerd en er zit een pauze tussen pagina's
 (`delay_seconds`). Pagina's die mislukken worden opnieuw geprobeerd.

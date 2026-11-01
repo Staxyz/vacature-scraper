@@ -40,4 +40,35 @@ def test_geen_persoonsgegevens():
         assert verboden not in alles, verboden
     assert "kenmerk_contactpersoon" not in r
     assert "sectie_heb_je_vragen" not in r
-    assert r["verwijderde_contactsecties"] == "Heb je vragen?"
+    assert r["verwijderde_contactsecties"] == "contact"
+
+
+def test_afgeleide_velden_en_aliassen():
+    from scraper.extract import build_alias_map
+
+    html = """<html><body><main><h1>X</h1>
+    <h2>Interesse? Let’s meet Anna Bakker</h2><p>Recruiter</p>
+    <h2>This is what we offer</h2><ul><li>Brutomaandsalaris tussen €2.640,- en €4.565,-</li>
+    <li>Een werkweek van 32 tot 40 uur</li></ul>
+    <h2>Relevante vacatures</h2><p>Andere baan</p></main></body></html>"""
+    amap = build_alias_map({"dit_bieden_wij": ["Dit bieden wij", "This is what we offer"]})
+    r = parse_vacancy_page(html, "https://x.nl/en/vacancy/x", amap)
+    assert "sectie_dit_bieden_wij" in r
+    assert not any("anna" in k or "meet" in k or "relevante" in k for k in r)
+    assert "Anna" not in " ".join(r.values())
+    assert (r["salaris_min"], r["salaris_max"], r["salaris_eenheid"]) == ("2640", "4565", "MONTH")
+    assert (r["uren_min"], r["uren_max"]) == ("32", "40")
+
+
+def test_bedragen():
+    from scraper.extract import derive_fields
+
+    gevallen = {
+        "Gross salary between €3,185 and €4,700 per month": ("3185", "4700"),
+        "Brutomaandsalaris tussen € 5.085,- en € 6.230,-": ("5085", "6230"),
+        "between € 5.100 and € 6,250 per month": ("5100", "6250"),
+        "between € 5.000 and € 10.000 per month": ("5000", "10000"),
+    }
+    for tekst, verwacht in gevallen.items():
+        r = derive_fields({"sectie_x": tekst})
+        assert (r["salaris_min"], r["salaris_max"]) == verwacht, tekst

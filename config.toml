@@ -20,10 +20,24 @@ naam = "KPMG Nederland"
 start_url = "https://www.werkenbijkpmg.nl/vacatures"
 # Regex waarmee links naar vacaturepagina's worden herkend.
 # Controleer dit na de eerste 'python -m scraper kpmg --debug' run.
-vacature_link_pattern = "/vacatures?/[^/?#]+[^/?#]*$"
+vacature_link_pattern = "/(vacature|vacancy)/[^/?#]+$"
 # Links die WEL op het patroon lijken maar geen vacature zijn
 uitsluit_pattern = "/vacatures?/?$|/vacatures?/(zoeken|search|filter|categorie|locatie)"
 # Knoppen voor 'meer laden' / volgende pagina (teksten, hoofdletterongevoelig)
 meer_laden_teksten = ["meer vacatures", "meer laden", "toon meer", "load more", "show more", "volgende", "next"]
 # Max aantal keer doorklikken/pagineren (veiligheidsgrens)
 max_paginas = 200
+# Max wachttijd (ms) tot een vacaturepagina 'stil' is. 0 = niet wachten:
+# KPMG levert de inhoud direct in de HTML, dus wachten kost alleen tijd.
+detail_wacht_ms = 0
+# Zoekindex met alle vacatures (KPMG-specifiek)
+index_pad = "/_lunr/vacancies"
+
+# Koppen die hetzelfde betekenen komen in één kolom (sectie_<naam>).
+# Links de kolomnaam, rechts de koppen zoals ze op de site staan (NL en EN).
+[sites.kpmg.sectie_aliassen]
+jouw_uitdagingen = ["Jouw uitdagingen", "Your challenges"]
+dit_neem_jij_mee = ["Dit neem jij mee", "This is what you bring", "What you bring"]
+wat_ga_je_doen = ["Wat ga je doen?", "What will you do?", "What are you going to do?"]
+dit_bieden_wij = ["Dit bieden wij", "This is what we offer", "What we offer"]
+sollicitatieprocedure = ["Sollicitatieprocedure", "Sollicitatie procedure", "Application procedure"]

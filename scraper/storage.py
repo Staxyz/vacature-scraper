@@ -13,26 +13,37 @@ CORE_COLUMNS = [
     "status",
     "titel",
     "organisatie",
+    "taal",
+    "markt",
+    "interessegebied",
+    "ervaringsniveau",
+    "opleidingsniveau",
     "plaats",
+    "locaties",
     "provincie_regio",
     "land",
     "dienstverband",
     "werktijden",
+    "uren_min",
+    "uren_max",
     "salaris_min",
     "salaris_max",
     "salaris_eenheid",
     "salaris_valuta",
+    "salaris_bron",
     "opleidingseisen",
     "ervaringseisen",
     "functiecategorie",
     "branche",
     "publicatiedatum",
+    "aangemaakt_op",
     "geldig_tot",
     "eerst_gezien",
     "laatst_gezien",
     "dagen_online",
     "url",
     "korte_omschrijving",
+    "intro",
     "omschrijving_volledig",
 ]
 TAIL_COLUMNS = ["aantal_woorden_omschrijving", "bron_jsonld", "verwijderde_contactsecties", "gescraped_op"]
@@ -135,7 +146,8 @@ class Store:
         }
 
 
-CHANGE_COLUMNS = ["wijziging", "vacature_id", "titel", "plaats", "dienstverband", "functiecategorie",
+CHANGE_COLUMNS = ["wijziging", "vacature_id", "titel", "markt", "interessegebied", "ervaringsniveau",
+                  "plaats", "locaties", "branche",
                   "eerst_gezien", "laatst_gezien", "dagen_online", "datum_wijziging", "url"]
 
 

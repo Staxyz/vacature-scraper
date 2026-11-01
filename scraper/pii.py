@@ -16,7 +16,8 @@ REDACTED = "[verwijderd]"
 # Koppen van secties die (bijna) altijd over een contactpersoon gaan
 _CONTACT_HEADING = re.compile(
     r"contact|recruiter|vragen\??$|meer weten|meer informatie|jouw (aanspreekpunt|contactpersoon)"
-    r"|wie (is|zijn) (je|jouw)|interesse\??$|solliciteren\??$",
+    r"|wie (is|zijn) (je|jouw)|^\s*interess?e|^\s*interested|let.?s meet|meet (your|je|jouw)"
+    r"|solliciteren\??$|questions\??$|get in touch",
     re.IGNORECASE,
 )
 

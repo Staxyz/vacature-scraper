@@ -18,9 +18,9 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 
-from playwright.sync_api import BrowserContext, Page, TimeoutError as PWTimeout, sync_playwright
+from playwright.sync_api import Page, TimeoutError as PWTimeout, sync_playwright
 
-from .extract import parse_vacancy_page
+from .extract import build_alias_map, parse_vacancy_page
 
 log = logging.getLogger("scraper")
 
@@ -56,6 +56,7 @@ class CareerSiteCrawler:
         self.debug_dir = debug_dir
         self.robots: RobotFileParser | None = None
         self.json_responses: list[dict] = []
+        self.alias_map = build_alias_map(site_cfg.get("sectie_aliassen"))
 
     # ------------------------------------------------------------ hulpfuncties
 
@@ -88,18 +89,30 @@ class CareerSiteCrawler:
 
     # ------------------------------------------------------------ setup
 
-    def load_robots(self, ctx: BrowserContext) -> None:
+    def fetch_text(self, page: Page, url: str) -> str | None:
+        """Haal een bestand op via de browser zelf (zelfde cookies/proxy als de pagina)."""
+        try:
+            res = page.evaluate(
+                """async (u) => { const r = await fetch(u, {credentials: 'same-origin'});
+                                  return r.ok ? await r.text() : null; }""",
+                url,
+            )
+            return res
+        except Exception as e:
+            log.warning("Ophalen mislukt (%s): %s", url, e)
+            return None
+
+    def load_robots(self, page: Page) -> None:
         if not self.general.get("respect_robots_txt", True):
             return
-        try:
-            resp = ctx.request.get(self.base + "/robots.txt", timeout=15000)
-            if resp.ok:
-                rp = RobotFileParser()
-                rp.parse(resp.text().splitlines())
-                self.robots = rp
-                log.info("robots.txt geladen")
-        except Exception as e:  # robots.txt niet bereikbaar = geen beperkingen bekend
-            log.warning("robots.txt niet op te halen: %s", e)
+        txt = self.fetch_text(page, self.base + "/robots.txt")
+        if txt is None:
+            log.warning("robots.txt niet op te halen; ga verder zonder beperkingen")
+            return
+        rp = RobotFileParser()
+        rp.parse(txt.splitlines())
+        self.robots = rp
+        log.info("robots.txt geladen")
 
     def accept_cookies(self, page: Page) -> None:
         for sel in _COOKIE_BUTTONS:
@@ -157,13 +170,15 @@ class CareerSiteCrawler:
             pass
         return False
 
-    def links_from_listing(self, page: Page) -> set[str]:
+    def open_start(self, page: Page) -> None:
         page.goto(self.start_url, wait_until="domcontentloaded", timeout=60000)
         try:
             page.wait_for_load_state("networkidle", timeout=20000)
         except PWTimeout:
             pass
         self.accept_cookies(page)
+
+    def links_from_listing(self, page: Page) -> set[str]:
         self._debug_write("overzicht_start.html", page.content())
         if self.debug_dir:
             page.screenshot(path=str(self.debug_dir / "overzicht_start.png"), full_page=True)
@@ -189,7 +204,7 @@ class CareerSiteCrawler:
         self._debug_write("overzicht_eind.html", page.content())
         return links
 
-    def links_from_sitemap(self, ctx: BrowserContext) -> set[str]:
+    def links_from_sitemap(self, page: Page) -> set[str]:
         """Aanvulling via sitemap.xml (inclusief sitemap-indexen)."""
         found: set[str] = set()
         todo = [self.base + "/sitemap.xml"]
@@ -201,13 +216,10 @@ class CareerSiteCrawler:
             if sm in seen:
                 continue
             seen.add(sm)
-            try:
-                resp = ctx.request.get(sm, timeout=20000)
-                if not resp.ok:
-                    continue
-                locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", resp.text())
-            except Exception:
+            body = self.fetch_text(page, sm)
+            if not body:
                 continue
+            locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", body)
             for loc in locs:
                 if loc.endswith(".xml") or "sitemap" in loc.lower():
                     todo.append(loc)
@@ -218,6 +230,15 @@ class CareerSiteCrawler:
         log.info("Sitemap: %d vacature-links", len(found))
         return found
 
+    def discover(self, page: Page) -> tuple[set[str], dict[str, dict]]:
+        """Geeft (vacature-URL's, extra velden per URL). Sites kunnen dit vervangen."""
+        links = self.links_from_listing(page)
+        sitemap_links = self.links_from_sitemap(page)
+        extra = sitemap_links - links
+        if extra:
+            log.info("Sitemap voegt %d links toe die niet in het overzicht stonden", len(extra))
+        return links | sitemap_links, {}
+
     # ------------------------------------------------------------ stap 2: detailpagina's
 
     def scrape_detail(self, page: Page, url: str) -> dict:
@@ -227,12 +248,14 @@ class CareerSiteCrawler:
                 resp = page.goto(url, wait_until="domcontentloaded", timeout=45000)
                 if resp and resp.status in (404, 410):
                     return {"_verlopen": True}
-                try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-                except PWTimeout:
-                    pass
+                wait_ms = int(self.cfg.get("detail_wacht_ms", 10000))
+                if wait_ms:
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=wait_ms)
+                    except PWTimeout:
+                        pass
                 html = page.content()
-                rec = parse_vacancy_page(html, url)
+                rec = parse_vacancy_page(html, url, self.alias_map)
                 # Pagina zonder JobPosting-data met veel vacaturelinks = overzichts-/filterpagina
                 if rec.get("bron_jsonld") == "nee" and len(self.collect_links_on_page(page)) > 5:
                     return {"_geen_vacature": True}
@@ -260,15 +283,11 @@ class CareerSiteCrawler:
             page = ctx.new_page()
             page.on("response", self._capture_json)
             try:
-                self.load_robots(ctx)
+                self.open_start(page)
+                self.load_robots(page)
                 if not self.allowed(self.start_url):
                     raise RuntimeError(f"robots.txt staat {self.start_url} niet toe")
-                links = self.links_from_listing(page)
-                sitemap_links = self.links_from_sitemap(ctx)
-                extra = sitemap_links - links
-                if extra:
-                    log.info("Sitemap voegt %d links toe die niet in het overzicht stonden", len(extra))
-                links |= sitemap_links
+                links, meta = self.discover(page)
                 if self.debug_dir:
                     self._debug_write("gevonden_links.txt", "\n".join(sorted(links)))
                     self._debug_write("json_responses.json", json.dumps(self.json_responses, ensure_ascii=False, indent=2))
@@ -293,6 +312,9 @@ class CareerSiteCrawler:
                     if rec.get("_geen_vacature"):
                         log.info("[%d/%d] geen vacature (overzichtspagina): %s", n, len(urls), url)
                         continue
+                    for k, v in meta.get(url, {}).items():
+                        if v and not rec.get(k):
+                            rec[k] = v
                     rec["vacature_id"] = self.vacancy_id(url)
                     rec["url"] = url
                     records.append(rec)

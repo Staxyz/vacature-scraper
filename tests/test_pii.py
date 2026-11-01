@@ -34,3 +34,8 @@ def test_contactkoppen():
     assert is_contact_heading("Jouw recruiter")
     assert not is_contact_heading("Wat ga je doen?")
     assert not is_contact_heading("Wat bieden wij")
+
+
+def test_kpmg_recruiterkop():
+    assert is_contact_heading("Interesse? Let’s meet Lotte Enzler")
+    assert is_contact_heading("Interested?Let’s meet Rohan Koetse")
