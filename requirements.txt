@@ -1,3 +1,11 @@
 playwright>=1.48
 beautifulsoup4>=4.12
 pytest>=8.0
+# Topic modeling (topic_modeling.py)
+pandas>=2.0
+scikit-learn>=1.4
+gensim>=4.3
+spacy>=3.7
+pyLDAvis>=3.4
+matplotlib>=3.8
+tabulate>=0.9

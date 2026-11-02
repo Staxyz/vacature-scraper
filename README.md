@@ -116,6 +116,26 @@ alles als "verdwenen" wordt gemarkeerd.
 - **Mac/Linux:** `crontab -e` →
   `0 7 * * 1 cd /pad/naar/vacature-scraper && .venv/bin/python -m scraper kpmg`
 
+## Topic modeling (LDA vs NMF)
+
+`topic_modeling.py` zoekt met twee topic models (LDA en NMF) naar categorieën in de functieteksten
+en vergelijkt welk model de duidelijkste clusters geeft. Eenmalig de taalmodellen installeren:
+
+```bash
+python -m spacy download nl_core_news_sm
+python -m spacy download en_core_web_sm
+```
+
+Daarna (gebruikt automatisch de nieuwste scraper-CSV):
+
+```bash
+python topic_modeling.py
+```
+
+De output (scores, grafiek, topics, toewijzing per vacature, pyLDAvis-HTML en `resultaten.md`) komt
+in `output/topic_models/`. Instellingen zoals tekstkolommen, aantallen topics, `min_df`/`max_df` en seeds
+zijn aan te passen met opties; zie `python topic_modeling.py --help`.
+
 ## Tests
 
 ```bash
