@@ -136,6 +136,20 @@ De output (scores, grafiek, topics, toewijzing per vacature, pyLDAvis-HTML en `r
 in `output/topic_models/`. Instellingen zoals tekstkolommen, aantallen topics, `min_df`/`max_df` en seeds
 zijn aan te passen met opties; zie `python topic_modeling.py --help`.
 
+## LLM-categorisering (Claude)
+
+`llm_categorisatie.py` laat een LLM elke vacature indelen in een vaste set vakgebieden
+(`llm/categorieen.json`, met de prompt in `llm/prompt.md`) en vergelijkt dat met LDA en NMF.
+Draai eerst `topic_modeling.py`. Daarna:
+
+```bash
+python llm_categorisatie.py classify --run 2026-11-02   # via de Claude API; vereist ANTHROPIC_API_KEY
+python llm_categorisatie.py evaluate
+```
+
+Output in `output/llm_categorisatie/`. Een run kost ongeveer $0,22 met Claude Opus 5.5
+(zie `kosten_schatting.csv`).
+
 ## Tests
 
 ```bash

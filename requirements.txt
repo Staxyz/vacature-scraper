@@ -9,3 +9,5 @@ spacy>=3.7
 pyLDAvis>=3.4
 matplotlib>=3.8
 tabulate>=0.9
+pydantic>=2.0
+anthropic>=1.0  # alleen nodig voor 'llm_categorisatie.py classify'

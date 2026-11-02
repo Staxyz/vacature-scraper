@@ -1,0 +1,13 @@
+[
+  {"id": "sap", "naam": "SAP-implementatie", "beschrijving": "Implementatie, architectuur en verkoop van SAP-oplossingen (S/4HANA, BTP, finance, procurement, supply chain)."},
+  {"id": "microsoft_servicenow", "naam": "Microsoft- & ServiceNow-platforms", "beschrijving": "Implementatie van Microsoft Dynamics 365, Power Platform, Azure/Copilot of ServiceNow bij klanten."},
+  {"id": "data_ai_tech", "naam": "Data, AI & technologiestrategie", "beschrijving": "Data governance, data- en AI-platformen, master data, digitale architectuur, cloud- en technologietransformatie."},
+  {"id": "cyber", "naam": "Cyber security", "beschrijving": "Cyberstrategie en -weerbaarheid, incident response, red teaming, offensive security, identity & access management."},
+  {"id": "tech_assurance", "naam": "IT-risk & technology assurance", "beschrijving": "IT-audit, technology assurance, IT-risk en -compliance, autorisaties in ERP-systemen."},
+  {"id": "grc", "naam": "Governance, risk & compliance", "beschrijving": "Internal audit, risicomanagement, compliance/AML, financial risk management, forensisch onderzoek, actuariaat."},
+  {"id": "audit", "naam": "Audit & accountancy", "beschrijving": "Jaarrekeningcontrole, subsidiecontroles, accounting advisory, samenstelpraktijk en financiële administratie voor klanten."},
+  {"id": "deals", "naam": "Deals: corporate finance, M&A & transacties", "beschrijving": "Waarderingen, corporate finance, transaction services/due diligence, deal strategy, integratie en separatie."},
+  {"id": "strategie", "naam": "Strategy & operations (sectoradvies)", "beschrijving": "Strategie- en organisatieadvies per sector: financiële sector, publieke sector, zorg, vastgoed, duurzaamheid, defensie."},
+  {"id": "transformatie", "naam": "Transformatie, procesverbetering & sourcing", "beschrijving": "Change management, transformatieprogramma's, digital process excellence/process mining, finance- en HR-transformatie, digital sourcing."},
+  {"id": "intern", "naam": "Interne KPMG-functies", "beschrijving": "Functies voor KPMG's eigen organisatie: marketing, recruitment, HR, L&D, interne IT en security, finance, tenders, business development."}
+]
