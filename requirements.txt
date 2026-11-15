@@ -11,3 +11,4 @@ matplotlib>=3.8
 tabulate>=0.9
 pydantic>=2.0
 anthropic>=1.0  # alleen nodig voor 'llm_categorisatie.py classify'
+sentence-transformers>=3.0  # sbert_clustering.py
