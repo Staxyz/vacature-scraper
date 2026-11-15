@@ -9,8 +9,8 @@ Werkwijze:
        (hoe goed vacatures bij hun eigen cluster passen tegenover het dichtstbijzijnde andere).
     3. relevancy_percent = hoe dicht de vacature bij het midden van zijn cluster ligt (cosine-gelijkenis),
        geschaald over de dataset: 100% = meest typische vacature, 0% = minst typische.
-    4. Elk cluster krijgt een naam: uit cluster_namen.json als die past, anders de top 3
-       kenmerkende woorden (class-based TF-IDF).
+    4. Elk cluster krijgt een naam: uit output/sbert/<invoernaam>_cluster_namen.json als die past,
+       anders de top 3 kenmerkende woorden (class-based TF-IDF).
 
 Gebruik:
     python sbert_clustering.py                                   # output/kpmg_vacancies.csv
@@ -221,7 +221,8 @@ def main(argv=None) -> int:
             emb, KMeans(n_clusters=k, n_init=20, random_state=RANDOM_STATE).fit_predict(emb), metric="cosine")}])
     labels, relevancy, gelijkenis = cluster(emb, k)
     top = topwoorden(df, labels)
-    namen = clusternamen(top, extra / "cluster_namen.json")
+    # Namen per dataset (bijv. kpmg_vacancies_cluster_namen.json), zodat KPMG-namen nooit op EY-clusters komen
+    namen = clusternamen(top, extra / f"{args.input.stem}_cluster_namen.json")
 
     df["cluster_id"] = labels
     df["cluster"] = [namen[c] for c in labels]

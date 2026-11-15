@@ -134,8 +134,9 @@ def main(argv=None) -> int:
         ctrl = pd.read_csv(args.controleset).drop_duplicates("title").set_index("title")["gold"]
         echt = df["title"].map(ctrl)
         geldig = echt.notna()
-        print(f"Overeenstemming met controleset: {(echt[geldig] == df.job_category[geldig]).mean():.1%} "
-              f"({int(geldig.sum())} vacatures)\n")
+        if geldig.any():
+            print(f"Overeenstemming met controleset: {(echt[geldig] == df.job_category[geldig]).mean():.1%} "
+                  f"({int(geldig.sum())} vacatures)\n")
     for c in namen:
         g = df[df.job_category == c]
         print(f"{c:6} {len(g):3} vacatures, gem. zekerheid {g.category_confidence_percent.astype(float).mean():.0f}%")
