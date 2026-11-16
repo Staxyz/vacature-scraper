@@ -27,7 +27,12 @@ What happens:
                    (60%), the full text against the ESCO description (40%). The category follows from
                    that occupation's code: Tech = Eurostat/OECD ICT specialists (ISCO-08), Data and AI =
                    the data- and AI-occupations within ESCO (see ESCO classification below).
-                   The ESCO list is downloaded once (~20 min) to esco_occupations.json next to this file.
+                   ESCO has no product names, so ~50 market names (SAP consultant, ServiceNow developer,
+                   AI engineer, ...) are added to the ESCO occupation that describes that work.
+                   On KPMG data: ~90% agreement with a manual check; the differences are mostly
+                   definitional (e.g. ESCO counts digital sourcing as purchasing, not ICT).
+                   The ESCO list is downloaded once (~20 min) to esco_occupations.json next to this file;
+                   put the shared esco_occupations.json next to this script to skip that.
 
 Options:  --k 9   fixed number of clusters      --output <path>   different output file name
 """
@@ -231,6 +236,36 @@ DATA_ESCO = {
     "2521.3": "database developer", "2521.4": "database integrator", "2521.5": "data warehouse designer",
     "2421.3": "business intelligence manager", "2120.6": "statistician",
 }
+# ESCO has no product names (SAP, ServiceNow, Dynamics, ...), so vacancies for those roles would match on
+# generic words ("finance", "sales") and land in Other. These current market names are added as extra
+# names to the EXISTING ESCO occupation that describes the work. The category still comes from that
+# occupation's ESCO code, so the definitions stay European.
+ESCO_ALIASES = {
+    "2514.1": ["SAP consultant", "SAP functional consultant", "SAP S/4HANA consultant", "ERP consultant",
+               "Microsoft Dynamics 365 consultant", "Dynamics 365 functional consultant", "ServiceNow consultant",
+               "ServiceNow developer", "ServiceNow manager", "Dynamics 365 specialist", "Salesforce consultant", "Power Platform consultant", "low-code developer",
+               "Mendix developer"],                                         # ICT application configurator
+    "2511.16": ["SAP integration consultant", "SAP BTP integration architect", "integration consultant"],
+    "2511.5": ["solution architect", "SAP solution architect", "cloud architect", "digital architect"],
+    "1330.7": ["SAP project manager", "ERP project manager", "IT project manager"],  # ICT project manager
+    "2434.1": ["SAP sales manager", "software sales manager"],                  # ICT account manager
+    "2529.3": ["red team operator", "red teamer", "penetration tester", "offensive security specialist"],
+    "2529.6": ["cyber security consultant", "incident response consultant", "identity and access management consultant"],
+    "2511.17": ["IT risk consultant", "IT risk officer", "technology assurance consultant",
+                "IT risk and compliance consultant"],                       # IT auditor
+    "2511.9": ["technology consultant", "technology transformation consultant", "cloud consultant",
+               "IT sourcing consultant", "digital transformation consultant"],  # ICT consultant
+    "2519.4": ["quality assurance engineer", "software test engineer"],     # ICT quality assurance manager
+    "2511.2": ["process mining analyst", "BI consultant", "Power BI developer", "data and insights consultant"],
+    "2519.1": ["data management consultant", "data governance consultant", "master data management consultant"],
+    "2521.4": ["data migration consultant"],                                # database integrator
+    "2511.3": ["data engineer", "data platform engineer"],                  # data scientist
+    "2511.10": ["AI engineer", "machine learning engineer", "AI architect", "AI consultant", "GenAI consultant",
+                "AI governance consultant"],                                # ICT intelligent systems designer
+}
+# Big Four vacancies are always for managers, professionals or technicians (ISCO major groups 1-3).
+# Restricting the candidates to those groups prevents nonsense matches such as 'life guard'.
+PROFESSIONAL_GROUPS = ("1", "2", "3")
 TITLE_WEIGHT = 0.6   # vacancy title vs ESCO occupation names; the rest: full text vs ESCO description
 MAX_ALT_LABELS = 15  # alternative names per language per occupation
 
@@ -335,6 +370,18 @@ def embed_esco(occupations: list[dict], model, model_name: str, cache: Path):
     return name_emb, np.array(owner), desc_emb
 
 
+def add_aliases(occupations: list[dict], model, name_emb, owner):
+    """Append the market names from ESCO_ALIASES to the names of their ESCO occupation."""
+    index = {o["code"]: j for j, o in enumerate(occupations)}
+    names, extra_owner = [], []
+    for code, aliases in ESCO_ALIASES.items():
+        if code in index:
+            names += aliases
+            extra_owner += [index[code]] * len(aliases)
+    alias_emb = model.encode(names, normalize_embeddings=True, show_progress_bar=False)
+    return np.vstack([name_emb, alias_emb]), np.concatenate([owner, extra_owner])
+
+
 def softmax(x: np.ndarray, temperature: float) -> np.ndarray:
     z = (x - x.max(axis=1, keepdims=True)) / temperature
     e = np.exp(z)
@@ -357,12 +404,15 @@ def categorise(df: pd.DataFrame, emb: np.ndarray, model_name: str, esco_path: Pa
     occupations = load_esco(esco_path)
     name_emb, owner, desc_emb = embed_esco(occupations, model, model_name,
                                            esco_path.with_name("esco_embeddings.npz"))
+    name_emb, owner = add_aliases(occupations, model, name_emb, owner)
     titles = model.encode(df["title"].tolist(), normalize_embeddings=True)
 
     name_sim = titles @ name_emb.T                                   # vacancies x all names
     title_score = np.full((len(df), len(occupations)), -1.0)
     np.maximum.at(title_score.T, owner, name_sim.T)                  # best name per occupation
     score = TITLE_WEIGHT * title_score + (1 - TITLE_WEIGHT) * (emb @ desc_emb.T)
+    professional = np.array([o["isco"][:1] in PROFESSIONAL_GROUPS for o in occupations])
+    score[:, ~professional] = -np.inf
 
     best = score.argmax(axis=1)
     categories = ["AI", "Data", "Tech", "Other"]
