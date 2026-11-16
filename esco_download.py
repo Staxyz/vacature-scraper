@@ -19,7 +19,7 @@ from pathlib import Path
 API = "https://ec.europa.eu/esco/api/search"
 OUTPUT = Path(__file__).resolve().parent / "esco_occupations.json"
 CACHE = Path(__file__).resolve().parent / ".esco_cache"   # one file per page: an interrupted run resumes
-PAGE = 50
+PAGE = 10  # full records are ~50 KB each (all EU languages); small pages avoid timeouts
 
 
 def fetch(page: int) -> dict:
@@ -32,7 +32,7 @@ def fetch(page: int) -> dict:
                                     "limit": PAGE, "offset": page})
     for attempt in range(8):
         try:
-            with urllib.request.urlopen(f"{API}?{query}", timeout=180) as r:
+            with urllib.request.urlopen(f"{API}?{query}", timeout=90) as r:
                 data = json.load(r)
             CACHE.mkdir(exist_ok=True)
             cached.write_text(json.dumps(data), encoding="utf-8")
