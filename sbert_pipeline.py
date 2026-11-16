@@ -7,8 +7,8 @@ One file, one command:
 
 Input:  comma-separated CSV with the columns  title, location, link, description
 Output: <input>_sbert.csv with the columns
-        job_category, category_confidence_percent, cluster, relevancy_percent,
-        title, location, link, description
+        job_category, category_confidence_percent, esco_occupation, esco_code, isco_code,
+        cluster, relevancy_percent, title, location, link, description
         + a folder <input>_sbert/ with a chart, an overview per cluster and a cache.
 
 What happens:
@@ -22,10 +22,12 @@ What happens:
                    dataset: 100% = most typical vacancy, 0% = least typical.
     4. NAMES       Per cluster the 3 most distinctive words (class-based TF-IDF). Readable names can
                    be stored in <input>_sbert/cluster_names.json.
-    5. CATEGORY    AI / Tech / Data / Other, without training data: the title is compared with
-                   typical job titles from the market (60%), the full text with descriptive
-                   sentences (40%). category_confidence_percent = how clearly the winner wins.
-                   On KPMG data: 92% agreement with a manual check. Check the AI category in particular.
+    5. ESCO        Each vacancy is matched to the closest of the ~2,900 occupations in ESCO, the European
+                   classification of occupations: the title against all Dutch/English occupation names
+                   (60%), the full text against the ESCO description (40%). The category follows from
+                   that occupation's code: Tech = Eurostat/OECD ICT specialists (ISCO-08), Data and AI =
+                   the data- and AI-occupations within ESCO (see ESCO classification below).
+                   The ESCO list is downloaded once (~20 min) to esco_occupations.json next to this file.
 
 Options:  --k 9   fixed number of clusters      --output <path>   different output file name
 """
@@ -200,58 +202,137 @@ def overview(df: pd.DataFrame, top: dict, names: dict, scores: pd.DataFrame, k: 
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-# Description per category. Edit these sentences to shift the boundaries.
-# Deliberately in Dutch AND English: the vacancies are in both languages.
-CATEGORIES = {
-    "AI": [
-        "Artificial intelligence, machine learning and generative AI solutions for clients.",
-        "Je ontwikkelt en implementeert AI-toepassingen, GenAI, Copilot en machine learning modellen.",
-        "AI governance, AI risk management and responsible use of AI models.",
-        "AI-strategie en AI use cases: van idee tot werkende AI-oplossing.",
-    ],
-    "Data": [
-        "Data management, data governance, data quality and master data.",
-        "Je bouwt data platforms, datapijplijnen en data-architectuur.",
-        "Data analytics, business intelligence, dashboards and reporting with Power BI.",
-        "Datamigratie, datatransformatie en het inrichten van een data office.",
-    ],
-    "Tech": [
-        "Implementation of enterprise software such as SAP, Microsoft Dynamics and ServiceNow.",
-        "Je configureert en implementeert IT-systemen, cloudoplossingen en integraties.",
-        "Cyber security, incident response, penetration testing and identity and access management.",
-        "IT-architectuur, softwareontwikkeling, low-code, IT-infrastructuur en IT-risk.",
-    ],
-    "Other": [
-        "Financial statement audit, accountancy and assurance for clients.",
-        "Corporate finance, mergers and acquisitions, valuations and due diligence.",
-        "Strategieadvies, organisatieontwerp en verandermanagement voor organisaties.",
-        "Governance, risk management, compliance and internal audit.",
-        "Human resources, recruitment, marketing, finance and other support functions.",
-    ],
+# ---------------------------------------------------------------- ESCO classification
+#
+# ESCO = the European classification of occupations (European Commission). Every ESCO occupation
+# has an ISCO-08 code. The categories below follow European definitions:
+#
+#   Tech  = ICT specialists as defined by Eurostat/OECD: ISCO-08 groups 133, 25, 35, 2152, 2153,
+#           2166, 2356, 2434, 3114 and 742.
+#   Data  = ESCO occupations that revolve around data (listed below by ESCO code). Most are ICT
+#           occupations; 'business intelligence manager' and 'statistician' are data jobs outside the
+#           Eurostat ICT codes and are included on purpose.
+#   AI    = ESCO occupations that revolve around artificial intelligence (listed below).
+#   Other = all other ESCO occupations.
+#
+# ESCO has no separate AI or Data group: these occupations sit inside ICT, so AI and Data are
+# subgroups of Tech. A vacancy gets the category of the ESCO occupation it matches best.
+
+ESCO_API = "https://ec.europa.eu/esco/api"
+ICT_ISCO = ("133", "25", "35", "2152", "2153", "2166", "2356", "2434", "3114", "742")
+AI_ESCO = {
+    "2511.10": "ICT intelligent systems designer",
+    "2529.8": "knowledge engineer",
+    "2152.1.4": "language engineer (natural language processing)",
 }
+DATA_ESCO = {
+    "2511.3": "data scientist", "2511.2": "data analyst", "2519.1": "data quality specialist",
+    "1330.1": "chief data officer", "2521.1": "database administrator", "2521.2": "database designer",
+    "2521.3": "database developer", "2521.4": "database integrator", "2521.5": "data warehouse designer",
+    "2421.3": "business intelligence manager", "2120.6": "statistician",
+}
+TITLE_WEIGHT = 0.6   # vacancy title vs ESCO occupation names; the rest: full text vs ESCO description
+MAX_ALT_LABELS = 15  # alternative names per language per occupation
 
 
-# Typical job titles per category, deliberately taken from the general job market and NOT from the
-# KPMG vacancies, so the classification also works for other employers (EY, Deloitte, ...).
-TITLES = {
-    "AI": ["AI Engineer", "Machine Learning Engineer", "GenAI Consultant", "AI Architect", "AI Governance Consultant",
-           "AI Product Manager", "Azure AI Specialist", "AI-specialist", "Machine learning consultant",
-           "AI Strategy Consultant"],
-    "Data": ["Data Engineer", "Data Analyst", "BI Consultant", "Power BI Developer", "Data Governance Consultant",
-             "Data Management Consultant", "Master Data Specialist", "Data Migration Consultant",
-             "Analytics Consultant", "Data Architect"],
-    "Tech": ["SAP Consultant", "SAP S/4HANA Finance Consultant", "Microsoft Dynamics 365 Consultant",
-             "ServiceNow Developer", "Cyber Security Consultant", "Penetration Tester", "Incident Response Specialist",
-             "IT Auditor", "IT Risk Consultant", "Cloud Architect", "Solution Architect", "Software Engineer",
-             "IT Infrastructure Manager", "Low-code Developer", "IT Sourcing Consultant", "Enterprise Architect",
-             "Test Engineer", "Digital Transformation Consultant"],
-    "Other": ["Accountant", "Auditor jaarrekeningcontrole", "Corporate Finance Analyst", "M&A Consultant",
-              "Strategy Consultant", "Management Consultant", "Change Manager", "HR Advisor", "Recruiter",
-              "Marketing Manager", "Compliance Officer", "Risk Manager", "Tax Advisor", "Financial Controller",
-              "Beleidsadviseur publieke sector", "Forensic Accountant", "Afstudeerstage audit",
-              "Transaction Services Consultant"],
-}
-TITLE_WEIGHT = 0.6  # 0.5-0.7 gave practically the same result on the control set (91-92.5% agreement)
+def esco_category(code: str) -> str:
+    if code in AI_ESCO:
+        return "AI"
+    if code in DATA_ESCO:
+        return "Data"
+    if code.split(".")[0].startswith(ICT_ISCO):
+        return "Tech"
+    return "Other"
+
+
+def download_esco(path: Path) -> None:
+    """Download all ESCO occupations (~20 min, once). The API's 'offset' is a page number; full records
+    are ~50 KB each, so we use small pages, cache them and fall back to single records on server errors."""
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    cache = path.with_name(".esco_cache")
+    cache.mkdir(exist_ok=True)
+
+    def get(url):
+        for attempt in range(6):
+            try:
+                with urllib.request.urlopen(url, timeout=90) as r:
+                    return json.load(r)
+            except urllib.error.HTTPError as e:
+                if e.code == 500:
+                    raise
+            except Exception:
+                pass
+            time.sleep(min(60, 3 * 2 ** attempt))
+        raise RuntimeError(f"ESCO API not reachable ({url}); run again to resume")
+
+    def page(n, size=10):
+        cached = cache / f"page_{size}_{n:04d}.json"
+        if cached.exists():
+            return json.loads(cached.read_text(encoding="utf-8"))
+        params = {"type": "occupation", "language": "en", "limit": size, "offset": n}
+        try:
+            data = get(f"{ESCO_API}/search?{urllib.parse.urlencode({**params, 'full': 'true'})}")
+        except urllib.error.HTTPError:
+            data = get(f"{ESCO_API}/search?{urllib.parse.urlencode({**params, 'full': 'false'})}")
+            records = []
+            for light in data["_embedded"]["results"]:
+                try:
+                    records.append(get(f"{ESCO_API}/resource/occupation?"
+                                       f"{urllib.parse.urlencode({'uri': light['uri'], 'language': 'en'})}"))
+                except urllib.error.HTTPError:
+                    records.append(light)
+            data["_embedded"]["results"] = records
+        cached.write_text(json.dumps(data), encoding="utf-8")
+        return data
+
+    log.info("Downloading ESCO occupations (one-off, takes a while)...")
+    first = page(0)
+    results = first["_embedded"]["results"]
+    for n in range(1, -(-first["total"] // 10)):
+        results += page(n)["_embedded"]["results"]
+    occupations = []
+    for r in results:
+        code = r.get("code", "") or ""
+        occupations.append({
+            "uri": r["uri"], "code": code, "isco": code.split(".")[0][:4],
+            "label_en": (r.get("preferredLabel") or {}).get("en", ""),
+            "label_nl": (r.get("preferredLabel") or {}).get("nl", ""),
+            "alt_en": (r.get("alternativeLabel") or {}).get("en", []),
+            "alt_nl": (r.get("alternativeLabel") or {}).get("nl", []),
+            "description_en": ((r.get("description") or {}).get("en") or {}).get("literal", ""),
+        })
+    path.write_text(json.dumps(occupations, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def load_esco(path: Path) -> list[dict]:
+    if not path.exists():
+        download_esco(path)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def embed_esco(occupations: list[dict], model, model_name: str, cache: Path):
+    """Embeddings of all ESCO occupation names (EN + NL, incl. alternatives) and descriptions."""
+    key = f"{model_name}|{len(occupations)}|{MAX_ALT_LABELS}"
+    if cache.exists():
+        stored = np.load(cache, allow_pickle=True)
+        if str(stored["key"]) == key:
+            return stored["names"], stored["owner"], stored["desc"]
+    names, owner = [], []
+    for j, o in enumerate(occupations):
+        labels = [o["label_en"], o["label_nl"]] + o["alt_en"][:MAX_ALT_LABELS] + o["alt_nl"][:MAX_ALT_LABELS]
+        labels = list(dict.fromkeys(l for l in labels if l))
+        names += labels
+        owner += [j] * len(labels)
+    log.info("Embedding %d ESCO occupation names (one-off, cached)", len(names))
+    name_emb = model.encode(names, batch_size=64, normalize_embeddings=True, show_progress_bar=False)
+    desc_emb = model.encode([o["description_en"] or o["label_en"] for o in occupations], batch_size=32,
+                            normalize_embeddings=True, show_progress_bar=False)
+    np.savez(cache, names=name_emb, owner=np.array(owner), desc=desc_emb, key=np.array(key))
+    return name_emb, np.array(owner), desc_emb
 
 
 def softmax(x: np.ndarray, temperature: float) -> np.ndarray:
@@ -263,20 +344,39 @@ def softmax(x: np.ndarray, temperature: float) -> np.ndarray:
 # ---------------------------------------------------------------- main program
 
 
-def categorise(df: pd.DataFrame, emb: np.ndarray, model_name: str, temperature: float = 0.02):
-    """AI / Tech / Data / Other per vacancy + confidence (softmax over the four scores)."""
+def categorise(df: pd.DataFrame, emb: np.ndarray, model_name: str, esco_path: Path, temperature: float = 0.02):
+    """Match every vacancy to its closest ESCO occupation and derive AI / Data / Tech / Other from it.
+
+    score(vacancy, occupation) = 0.6 x best match of the vacancy title with any of the occupation's names
+                               + 0.4 x match of the full vacancy text with the occupation's description
+    category_confidence_percent = softmax over the best-scoring occupation per category: how clearly the
+    winning category beats the others."""
     from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer(model_name)
-    categories = list(CATEGORIES)
+    occupations = load_esco(esco_path)
+    name_emb, owner, desc_emb = embed_esco(occupations, model, model_name,
+                                           esco_path.with_name("esco_embeddings.npz"))
     titles = model.encode(df["title"].tolist(), normalize_embeddings=True)
-    title_score = np.column_stack([
-        (titles @ model.encode(TITLES[c], normalize_embeddings=True).T).max(axis=1) for c in categories])
-    text_score = np.column_stack([
-        (emb @ model.encode(CATEGORIES[c], normalize_embeddings=True).T).mean(axis=1) for c in categories])
-    similarity = TITLE_WEIGHT * title_score + (1 - TITLE_WEIGHT) * text_score
-    prob = softmax(similarity, temperature)
-    return [categories[i] for i in similarity.argmax(axis=1)], (prob.max(axis=1) * 100).round(1)
+
+    name_sim = titles @ name_emb.T                                   # vacancies x all names
+    title_score = np.full((len(df), len(occupations)), -1.0)
+    np.maximum.at(title_score.T, owner, name_sim.T)                  # best name per occupation
+    score = TITLE_WEIGHT * title_score + (1 - TITLE_WEIGHT) * (emb @ desc_emb.T)
+
+    best = score.argmax(axis=1)
+    categories = ["AI", "Data", "Tech", "Other"]
+    occ_cat = np.array([esco_category(o["code"]) for o in occupations])
+    per_cat = np.column_stack([np.where(occ_cat == c, score, -np.inf).max(axis=1) for c in categories])
+    prob = softmax(per_cat, temperature)
+    winner = [categories[i] for i in per_cat.argmax(axis=1)]
+    return pd.DataFrame({
+        "job_category": winner,
+        "category_confidence_percent": (prob.max(axis=1) * 100).round(1),
+        "esco_occupation": [occupations[j]["label_en"] for j in best],
+        "esco_code": [occupations[j]["code"] for j in best],
+        "isco_code": [occupations[j]["isco"] for j in best],
+    })
 
 
 def main(argv=None) -> int:
@@ -285,6 +385,8 @@ def main(argv=None) -> int:
     ap.add_argument("--output", type=Path, help="default: <input>_sbert.csv")
     ap.add_argument("--model", default=MODEL)
     ap.add_argument("--k", type=int, help="fixed number of clusters (default: chosen by silhouette, 6-15)")
+    ap.add_argument("--esco", type=Path, default=Path(__file__).resolve().parent / "esco_occupations.json",
+                    help="ESCO occupations file (downloaded automatically if missing)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     for noisy in ("sentence_transformers", "httpx", "huggingface_hub", "transformers"):
@@ -318,11 +420,12 @@ def main(argv=None) -> int:
     df["relevancy_percent"] = relevancy.round(1)
     df["cosine"] = similarity.round(3)
 
-    # 5. AI / Tech / Data / Other
-    df["job_category"], df["category_confidence_percent"] = categorise(df, emb, args.model)
+    # 5. AI / Data / Tech / Other via ESCO
+    esco = categorise(df, emb, args.model, args.esco)
+    df = pd.concat([df, esco], axis=1)
 
-    columns = ["job_category", "category_confidence_percent", "cluster", "relevancy_percent",
-               "title", "location", "link", "description"]
+    columns = ["job_category", "category_confidence_percent", "esco_occupation", "esco_code", "isco_code",
+               "cluster", "relevancy_percent", "title", "location", "link", "description"]
     order = {"AI": 0, "Data": 1, "Tech": 2, "Other": 3}
     df.sort_values(["job_category", "category_confidence_percent"], ascending=[True, False],
                    key=lambda s: s.map(order) if s.name == "job_category" else s
