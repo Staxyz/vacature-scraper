@@ -13,10 +13,12 @@ from __future__ import annotations
 import json
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 API = "https://ec.europa.eu/esco/api/search"
+RESOURCE = "https://ec.europa.eu/esco/api/resource/occupation"
 OUTPUT = Path(__file__).resolve().parent / "esco_occupations.json"
 CACHE = Path(__file__).resolve().parent / ".esco_cache"   # one file per page: an interrupted run resumes
 PAGE = 10  # full records are ~50 KB each (all EU languages); small pages avoid timeouts
@@ -28,19 +30,43 @@ def fetch(page: int) -> dict:
     cached = CACHE / f"page_{PAGE}_{page:04d}.json"
     if cached.exists():
         return json.loads(cached.read_text(encoding="utf-8"))
-    query = urllib.parse.urlencode({"type": "occupation", "language": "en", "full": "true",
-                                    "limit": PAGE, "offset": page})
-    for attempt in range(8):
+    params = {"type": "occupation", "language": "en", "limit": PAGE, "offset": page}
+    try:
+        data = get(f"{API}?{urllib.parse.urlencode({**params, 'full': 'true'})}")
+    except urllib.error.HTTPError as e:
+        if e.code != 500:
+            raise
+        # Some ESCO records make the server fail (HTTP 500). Then fetch this page record by record.
+        print(f"  page {page}: server error, fetching records one by one", flush=True)
+        data = get(f"{API}?{urllib.parse.urlencode({**params, 'full': 'false'})}")
+        full = []
+        for light in data["_embedded"]["results"]:
+            try:
+                full.append(get(f"{RESOURCE}?{urllib.parse.urlencode({'uri': light['uri'], 'language': 'en'})}"))
+            except urllib.error.HTTPError:
+                print(f"    '{light['title']}' unavailable in ESCO; using name and code only", flush=True)
+                full.append(light)
+        data["_embedded"]["results"] = full
+    CACHE.mkdir(exist_ok=True)
+    cached.write_text(json.dumps(data), encoding="utf-8")
+    return data
+
+
+def get(url: str) -> dict:
+    """GET with retries for timeouts and connection errors; a server error (HTTP 500) is raised at once."""
+    for attempt in range(6):
         try:
-            with urllib.request.urlopen(f"{API}?{query}", timeout=90) as r:
-                data = json.load(r)
-            CACHE.mkdir(exist_ok=True)
-            cached.write_text(json.dumps(data), encoding="utf-8")
-            return data
+            with urllib.request.urlopen(url, timeout=90) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 500:
+                raise
+            last = e
         except Exception as e:
-            print(f"  page {page}: attempt {attempt + 1} failed ({type(e).__name__}), retrying", flush=True)
-            time.sleep(min(60, 3 * 2 ** attempt))
-    raise RuntimeError(f"ESCO API not reachable (page {page}); run again to resume")
+            last = e
+        print(f"    attempt {attempt + 1} failed ({type(last).__name__}), retrying", flush=True)
+        time.sleep(min(60, 3 * 2 ** attempt))
+    raise RuntimeError(f"ESCO API not reachable ({url}); run again to resume")
 
 
 def label(d: dict | None, lang: str) -> str:
