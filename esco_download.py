@@ -18,20 +18,29 @@ from pathlib import Path
 
 API = "https://ec.europa.eu/esco/api/search"
 OUTPUT = Path(__file__).resolve().parent / "esco_occupations.json"
-PAGE = 100
+CACHE = Path(__file__).resolve().parent / ".esco_cache"   # one file per page: an interrupted run resumes
+PAGE = 50
 
 
 def fetch(page: int) -> dict:
-    """Note: the ESCO API's 'offset' is a page number, not a record number."""
+    """One page of full occupation records. Note: the ESCO API's 'offset' is a page number,
+    not a record number. Pages are cached, so a rerun only fetches what is still missing."""
+    cached = CACHE / f"page_{PAGE}_{page:04d}.json"
+    if cached.exists():
+        return json.loads(cached.read_text(encoding="utf-8"))
     query = urllib.parse.urlencode({"type": "occupation", "language": "en", "full": "true",
                                     "limit": PAGE, "offset": page})
-    for attempt in range(5):
+    for attempt in range(8):
         try:
-            with urllib.request.urlopen(f"{API}?{query}", timeout=240) as r:
-                return json.load(r)
-        except Exception:
-            time.sleep(2 ** attempt)
-    raise RuntimeError(f"ESCO API not reachable (page {page})")
+            with urllib.request.urlopen(f"{API}?{query}", timeout=180) as r:
+                data = json.load(r)
+            CACHE.mkdir(exist_ok=True)
+            cached.write_text(json.dumps(data), encoding="utf-8")
+            return data
+        except Exception as e:
+            print(f"  page {page}: attempt {attempt + 1} failed ({type(e).__name__}), retrying", flush=True)
+            time.sleep(min(60, 3 * 2 ** attempt))
+    raise RuntimeError(f"ESCO API not reachable (page {page}); run again to resume")
 
 
 def label(d: dict | None, lang: str) -> str:
